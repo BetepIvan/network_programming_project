@@ -5,72 +5,57 @@ PORT = 50432
 
 if __name__ == '__main__':
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as serv_sock:
+        serv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serv_sock.bind((HOST, PORT))
         serv_sock.listen()
 
+        print(f'Сервер запущен на {HOST}:{PORT}')
+
         while True:
-            print('Ожидаю подключения...')
+            print('\nОжидаю подключения...')
             sock, addr = serv_sock.accept()
             with sock:
-                print("Подключение по", addr)
+                print(f"Подключение по {addr}")
 
                 while True:
                     try:
                         data = sock.recv(1024)
-                        # Проверка на отключение клиента
-                        if not data:
-                            print(f'Клиент {addr} отключился')
-                            break
-
                     except ConnectionError:
                         print(f'Клиент {addr} внезапно отключился в процессе отправки данных на сервер')
                         break
 
-                    # Декодируем данные
-                    try:
-                        data_str = data.decode('utf-8').strip()
-                    except:
-                        data_str = data.decode('latin-1').strip()
-
-                    print(f'Received: {data_str}, from {addr}')
-
-                    # Проверка команд
-                    if not data_str:  # Пустой ввод (просто нажали Enter)
-                        response = b"Введите сообщение (exit - выход)"
-                        print(f'Send: {response.decode()}, to {addr}')
-                        try:
-                            sock.sendall(response)
-                        except ConnectionError:
-                            print(f'Клиент {addr} внезапно отключился не могу отправить данные')
-                            break
-                        continue
-
-                    elif data_str.lower() in ['exit', 'quit']:
-                        print(f'Клиент {addr} запросил отключение')
-                        try:
-                            sock.sendall(b'GOODBYE')
-                        except:
-                            pass
+                    # Если клиент отправил пустые данные (разрыв соединения)
+                    if not data:
+                        print(f'Клиент {addr} корректно отключился')
                         break
 
-                    elif data_str.lower() == 'shutdown server':
+                    data_decoded = data.decode('utf-8')
+                    print(f'Received: "{data_decoded}", from {addr}')
+
+                    # Проверка команд от клиента
+                    if data_decoded.strip().lower() == 'exit':
+                        print(f'Клиент {addr} запросил отключение по команде')
+                        response = 'До свидания!'.encode('utf-8')
+                        sock.sendall(response)
+                        break
+                    elif data_decoded.strip().lower() == 'stop server':
                         print(f'Клиент {addr} запросил выключение сервера')
-                        try:
-                            sock.sendall(b'SERVER_SHUTDOWN')
-                        except:
-                            pass
-                        # Завершаем работу сервера
-                        print("Сервер завершает работу...")
+                        response = 'Сервер выключается'.encode('utf-8')
+                        sock.sendall(response)
+                        print('Сервер завершает работу...')
+                        # Закрываем все соединения и завершаем работу
+                        sock.close()
+                        serv_sock.close()
                         exit(0)
 
                     # Обычная обработка - преобразование в верхний регистр
-                    data = data_str.upper().encode()
-                    print(f'Send: {data_str.upper()}, to {addr}')
+                    response = data_decoded.upper().encode('utf-8')
+                    print(f'Send: "{response.decode("utf-8")}", to {addr}')
 
                     try:
-                        sock.sendall(data)
+                        sock.sendall(response)
                     except ConnectionError:
-                        print(f'Клиент {addr} внезапно отключился не могу отправить данные')
+                        print(f'Клиент {addr} внезапно отключился, не могу отправить данные')
                         break
 
-                print("Отключение по", addr)
+                print(f"Отключение по {addr}")
