@@ -8,7 +8,6 @@ PORT = 50431
 server_running = True
 server_lock = threading.Lock()
 
-
 def handle_connection(sock, addr):
     global server_running
 
