@@ -14,20 +14,21 @@
 
 ### 1. Простой сервер (1 запрос - 1 ответ):
 ```
-echo_01_simple\
+cd echo_01_simple
 python echo_01_server.py
 python echo_01_client.py
 ```
 ### 2. Расширенный сервер (много запросов, 1 клиент):
 ```
-echo_02_advance\
+cd echo_02_advance
 python echo_server_02_server.py
 python echo_server_02_client_01.py
 ```
 ### 3. Многопоточный сервер (много клиентов):
 ```
-echo_03_mult\
+cd echo_03_mult
 python echo_server_03_server.py
+python echo_server_02_client_01.py
 ```
 
 ## Команды для клиентов:
