@@ -4,114 +4,95 @@ import threading
 HOST = '127.0.0.1'
 PORT = 50431
 
-# Флаг для выключения сервера
-server_running = True
-server_lock = threading.Lock()
 
-def handle_connection(sock, addr):
-    global server_running
-
+def handle_connection(sock, addr, clients):
+    """Обработка подключения клиента в отдельном потоке"""
     with sock:
-        print("Подключение по", addr)
+        print(f"Подключение по {addr}")
+        clients.append((sock, addr, threading.current_thread()))  # Добавляем клиента в список
 
         while True:
-            # Проверяем, работает ли еще сервер
-            with server_lock:
-                if not server_running:
-                    print(f'Сервер выключается, отключаем клиента {addr}')
-                    try:
-                        sock.sendall(b'SERVER_SHUTDOWN')
-                    except:
-                        pass
-                    break
-
             try:
                 data = sock.recv(1024)
-                # Проверка на отключение клиента
-                if not data:
-                    print(f'Клиент {addr} отключился')
-                    break
-
             except ConnectionError:
                 print(f'Клиент {addr} внезапно отключился в процессе отправки данных на сервер')
                 break
 
-            # Декодируем данные
-            try:
-                data_str = data.decode('utf-8').strip()
-            except:
-                data_str = data.decode('latin-1').strip()
-
-            print(f'Received: {data_str}, from {addr}')
-
-            # Проверка команд
-            if not data_str:  # Пустой ввод
-                response = b"Введите сообщение (exit - выход, shutdown server - выключить сервер)"
-                print(f'Send: {response.decode()}, to {addr}')
-                try:
-                    sock.sendall(response)
-                except ConnectionError:
-                    print(f'Клиент {addr} внезапно отключился не могу отправить данные')
-                    break
-                continue
-
-            elif data_str.lower() in ['exit', 'quit']:
-                print(f'Клиент {addr} запросил отключение')
-                try:
-                    sock.sendall(b'GOODBYE')
-                except:
-                    pass
+            # Если клиент отправил пустые данные (разрыв соединения)
+            if not data:
+                print(f'Клиент {addr} корректно отключился')
                 break
 
-            elif data_str.lower() == 'shutdown server':
+            data_decoded = data.decode('utf-8')
+            print(f'Received: "{data_decoded}", from {addr}')
+
+            # Проверка команд от клиента
+            if data_decoded.strip().lower() == 'exit':
+                print(f'Клиент {addr} запросил отключение по команде')
+                response = 'До свидания!'.encode('utf-8')
+                sock.sendall(response)
+                break
+            elif data_decoded.strip().lower() == 'stop server':
                 print(f'Клиент {addr} запросил выключение сервера')
-                with server_lock:
-                    server_running = False
-                try:
-                    sock.sendall(b'SERVER_SHUTDOWN_INITIATED')
-                except:
-                    pass
-                break
+                response = 'Сервер выключается'.encode('utf-8')
+                sock.sendall(response)
+                print('Сервер завершает работу...')
 
-            # Обычная обработка
-            data = data_str.upper().encode()
-            print(f'Send: {data_str.upper()}, to {addr}')
+                # Уведомляем всех клиентов о выключении сервера
+                for client_sock, client_addr, client_thread in clients:
+                    if client_sock != sock:  # Не уведомляем клиента, который инициировал выключение
+                        try:
+                            client_sock.sendall('Сервер выключается'.encode('utf-8'))
+                        except:
+                            pass
+
+                # Закрываем все соединения
+                for client_sock, client_addr, client_thread in clients:
+                    try:
+                        client_sock.close()
+                    except:
+                        pass
+
+                # Завершаем работу сервера
+                print("\nПроцесс завершен с кодом выхода 0")
+                exit(0)
+
+            # Обычная обработка - преобразование в верхний регистр
+            response = data_decoded.upper().encode('utf-8')
+            print(f'Send: "{response.decode("utf-8")}", to {addr}')
 
             try:
-                sock.sendall(data)
+                sock.sendall(response)
             except ConnectionError:
-                print(f'Клиент {addr} внезапно отключился не могу отправить данные')
+                print(f'Клиент {addr} внезапно отключился, не могу отправить данные')
                 break
 
-        print("Отключение по", addr)
+        # Удаляем клиента из списка при отключении
+        for i, (client_sock, client_addr, client_thread) in enumerate(clients):
+            if client_addr == addr:
+                clients.pop(i)
+                break
+
+        print(f"Отключение по {addr}")
 
 
 if __name__ == '__main__':
+    clients = []  # Список активных клиентов
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as serv_sock:
+        serv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serv_sock.bind((HOST, PORT))
         serv_sock.listen()
 
-        threads = []
+        print(f'Многопоточный сервер запущен на {HOST}:{PORT}')
+        print(f'Поддерживает одновременную работу нескольких клиентов')
 
-        try:
-            while server_running:
-                print('Ожидаю соединения...')
-                my_sock, my_addr = serv_sock.accept()
-                thread = threading.Thread(target=handle_connection, args=(my_sock, my_addr))
-                threads.append(thread)
-                thread.start()
-                print(f"Запущен поток для клиента {my_addr}")
+        while True:
+            print('\nОжидаю соединения...')
+            my_sock, my_addr = serv_sock.accept()
 
-        except KeyboardInterrupt:
-            print("\nСервер останавливается...")
-            with server_lock:
-                server_running = False
-
-        finally:
-            # Ожидаем завершения всех потоков
-            print("Ожидаю завершения клиентских соединений...")
-            for thread in threads:
-                thread.join(timeout=2.0)
-
-            print("Сервер завершил работу")
-            print("Process finished with exit code 0")
+            # Создаем и запускаем поток для обработки клиента
+            thread = threading.Thread(target=handle_connection, args=(my_sock, my_addr, clients))
+            thread.daemon = True  # Поток завершится при завершении основного потока
+            print(f'Запущен поток для клиента {my_addr}: {thread.name}')
+            thread.start()
